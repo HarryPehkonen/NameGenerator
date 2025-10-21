@@ -4,26 +4,48 @@
 #include <string>
 #include <vector>
 #include <random>
+#include <memory>
+#include "ProfileData.hpp"
 
 struct NameWithPattern {
     std::string name;
     std::string pattern;
 };
 
+enum class GenerationStrategy {
+    Legacy,      // Original pattern-based generation
+    Markov1,     // First-order Markov chains
+    Markov2,     // Second-order Markov chains (default)
+    Syllable,    // Syllable-based generation
+    Component,   // Onset + nucleus + coda assembly
+    NGram,       // Positional n-gram sampling
+    Random       // Random strategy each time
+};
+
 class NameGenerator {
 public:
     NameGenerator();
 
+    // Load a profile for data-driven generation
+    void loadProfile(const std::string& profile_path);
+
+    // Set generation strategy (only applies when profile is loaded)
+    void setStrategy(GenerationStrategy strategy);
+
+    // Set min/max length constraints (0 = unbounded)
+    void setMinLength(size_t min);
+    void setMaxLength(size_t max);
+
     // Generate a single name
     std::string generate();
 
-    // Generate a single name with pattern information
+    // Generate a single name with pattern/strategy information
     NameWithPattern generateWithPattern();
 
     // Generate multiple names
     std::vector<std::string> generate(size_t count);
 
-    // Generate multiple names with pattern information
+    // Generate multiple names with pattern/strategy information
     std::vector<NameWithPattern> generateWithPattern(size_t count);
 
     // Seed the random number generator
@@ -31,6 +53,25 @@ public:
 
 private:
     std::mt19937 rng_;
+
+    // Profile-based generation
+    std::unique_ptr<ProfileData> profile_;
+    GenerationStrategy strategy_ = GenerationStrategy::Markov2;
+    size_t min_length_ = 0;
+    size_t max_length_ = 0;
+
+    // Profile-based generation methods
+    std::string generateFromProfile();
+    std::string generateMarkov1();
+    std::string generateMarkov2();
+    std::string generateSyllable();
+    std::string generateComponent();
+    std::string generateNGram();
+
+    // Helper: weighted random selection
+    std::string selectWeighted(const std::vector<ProfileData::WeightedItem>& items);
+
+    // ===== LEGACY PATTERN-BASED GENERATION =====
 
     // ===== PHONETIC CHARACTER SETS =====
     // Consonants are organized by their phonetic properties (how they're produced)

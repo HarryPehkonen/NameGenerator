@@ -1,6 +1,7 @@
 #include "NameGenerator.hpp"
 #include <algorithm>
 #include <cctype>
+#include <numeric>
 
 NameGenerator::NameGenerator() : rng_(std::random_device{}()) {
     // Initialize consonant blends
@@ -116,7 +117,301 @@ void NameGenerator::seed(unsigned int seed) {
     rng_.seed(seed);
 }
 
+void NameGenerator::loadProfile(const std::string& profile_path) {
+    profile_ = std::make_unique<ProfileData>(profile_path);
+}
+
+void NameGenerator::setStrategy(GenerationStrategy strategy) {
+    strategy_ = strategy;
+}
+
+void NameGenerator::setMinLength(size_t min) {
+    min_length_ = min;
+}
+
+void NameGenerator::setMaxLength(size_t max) {
+    max_length_ = max;
+}
+
+std::string NameGenerator::selectWeighted(const std::vector<ProfileData::WeightedItem>& items) {
+    if (items.empty()) {
+        return "";
+    }
+
+    // Calculate total weight
+    int total_weight = std::accumulate(items.begin(), items.end(), 0,
+        [](int sum, const ProfileData::WeightedItem& item) {
+            return sum + item.weight;
+        });
+
+    if (total_weight <= 0) {
+        return "";
+    }
+
+    // Random selection weighted by frequency
+    std::uniform_int_distribution<int> dist(1, total_weight);
+    int random_value = dist(rng_);
+
+    int cumulative = 0;
+    for (const auto& item : items) {
+        cumulative += item.weight;
+        if (random_value <= cumulative) {
+            return item.value;
+        }
+    }
+
+    // Fallback (shouldn't reach here)
+    return items[0].value;
+}
+
+std::string NameGenerator::generateFromProfile() {
+    if (!profile_) {
+        // No profile loaded, fall back to legacy generation
+        return generateFromPattern(patterns_[std::uniform_int_distribution<size_t>(0, patterns_.size() - 1)(rng_)]);
+    }
+
+    // Select strategy (random if set to Random)
+    GenerationStrategy current_strategy = strategy_;
+    if (strategy_ == GenerationStrategy::Random) {
+        std::uniform_int_distribution<int> strategy_dist(0, 5);
+        current_strategy = static_cast<GenerationStrategy>(strategy_dist(rng_));
+    }
+
+    // Generate using selected strategy
+    std::string name;
+    constexpr int max_attempts = 100;
+    int attempts = 0;
+
+    do {
+        switch (current_strategy) {
+            case GenerationStrategy::Markov1:
+                name = generateMarkov1();
+                break;
+            case GenerationStrategy::Markov2:
+                name = generateMarkov2();
+                break;
+            case GenerationStrategy::Syllable:
+                name = generateSyllable();
+                break;
+            case GenerationStrategy::Component:
+                name = generateComponent();
+                break;
+            case GenerationStrategy::NGram:
+                name = generateNGram();
+                break;
+            case GenerationStrategy::Legacy:
+            default:
+                name = generateFromPattern(patterns_[std::uniform_int_distribution<size_t>(0, patterns_.size() - 1)(rng_)]);
+                break;
+        }
+
+        ++attempts;
+
+        // Check length constraints
+        bool meets_constraints = true;
+        if (min_length_ > 0 && name.length() < min_length_) {
+            meets_constraints = false;
+        }
+        if (max_length_ > 0 && name.length() > max_length_) {
+            meets_constraints = false;
+        }
+
+        if (meets_constraints) {
+            return name;
+        }
+
+    } while (attempts < max_attempts);
+
+    // If we couldn't meet constraints, return what we have
+    return name;
+}
+
+std::string NameGenerator::generateMarkov1() {
+    const auto& markov = profile_->getMarkovOrder1();
+    if (markov.empty()) {
+        return "Error";
+    }
+
+    std::string result;
+    std::string context = "^";  // Start marker
+
+    constexpr int max_length = 20;
+    for (int i = 0; i < max_length; ++i) {
+        auto it = markov.find(context);
+        if (it == markov.end() || it->second.empty()) {
+            break;
+        }
+
+        std::string next = selectWeighted(it->second);
+        if (next == "$") {  // End marker
+            break;
+        }
+
+        result += next;
+        context = next;
+    }
+
+    return capitalize(result);
+}
+
+std::string NameGenerator::generateMarkov2() {
+    const auto& markov = profile_->getMarkovOrder2();
+    if (markov.empty()) {
+        return "Error";
+    }
+
+    std::string result;
+    std::string context = "^^";  // Start marker
+
+    constexpr int max_length = 20;
+    for (int i = 0; i < max_length; ++i) {
+        auto it = markov.find(context);
+        if (it == markov.end() || it->second.empty()) {
+            break;
+        }
+
+        std::string next = selectWeighted(it->second);
+        if (next == "$") {  // End marker
+            break;
+        }
+
+        result += next;
+
+        // Update context for order-2 chain
+        if (context.length() >= 2 && context[0] == '^') {
+            // Transitioning from start
+            context = context.substr(1) + next;
+        } else {
+            // Normal progression
+            context = context.substr(1) + next;
+        }
+    }
+
+    return capitalize(result);
+}
+
+std::string NameGenerator::generateSyllable() {
+    if (!profile_->hasSyllables()) {
+        // Fall back to markov2
+        return generateMarkov2();
+    }
+
+    const auto& syl_markov = profile_->getMarkovOrder() >= 2 ?
+                             profile_->getSyllableMarkov2() :
+                             profile_->getSyllableMarkov1();
+
+    std::string result;
+
+    // Start with a starting syllable
+    std::string current_syl = selectWeighted(profile_->getSyllablesStart());
+    if (current_syl.empty()) {
+        return "Error";
+    }
+
+    result = current_syl;
+
+    // Chain 1-3 more syllables
+    std::uniform_int_distribution<int> syl_count_dist(0, 2);
+    int additional_syllables = syl_count_dist(rng_);
+
+    for (int i = 0; i < additional_syllables; ++i) {
+        auto it = syl_markov.find(current_syl);
+        if (it == syl_markov.end() || it->second.empty()) {
+            break;
+        }
+
+        std::string next_syl = selectWeighted(it->second);
+        result += next_syl;
+        current_syl = next_syl;
+    }
+
+    return capitalize(result);
+}
+
+std::string NameGenerator::generateComponent() {
+    if (!profile_->hasComponents()) {
+        // Fall back to markov2
+        return generateMarkov2();
+    }
+
+    std::string result;
+
+    // Generate 1-3 syllables using component assembly
+    std::uniform_int_distribution<int> syl_count_dist(1, 3);
+    int syllable_count = syl_count_dist(rng_);
+
+    for (int i = 0; i < syllable_count; ++i) {
+        std::string onset, nucleus, coda;
+
+        // Select onset based on position
+        if (i == 0) {
+            onset = selectWeighted(profile_->getOnsetsStart());
+        } else if (i == syllable_count - 1) {
+            onset = selectWeighted(profile_->getOnsetsEnd());
+        } else {
+            onset = selectWeighted(profile_->getOnsetsMiddle());
+        }
+
+        // Nucleus (same for all positions)
+        nucleus = selectWeighted(profile_->getNuclei());
+
+        // Select coda based on position
+        if (i == 0) {
+            coda = selectWeighted(profile_->getCodasStart());
+        } else if (i == syllable_count - 1) {
+            coda = selectWeighted(profile_->getCodasEnd());
+        } else {
+            coda = selectWeighted(profile_->getCodasMiddle());
+        }
+
+        result += onset + nucleus + coda;
+    }
+
+    return capitalize(result);
+}
+
+std::string NameGenerator::generateNGram() {
+    std::string result;
+
+    // Start with a starting trigram or bigram
+    std::uniform_int_distribution<int> choice(0, 1);
+    if (choice(rng_) && !profile_->getTrigramsStart().empty()) {
+        result = selectWeighted(profile_->getTrigramsStart());
+    } else if (!profile_->getBigramsStart().empty()) {
+        result = selectWeighted(profile_->getBigramsStart());
+    } else {
+        return "Error";
+    }
+
+    // Add 1-3 middle n-grams
+    std::uniform_int_distribution<int> middle_count_dist(1, 3);
+    int middle_count = middle_count_dist(rng_);
+
+    for (int i = 0; i < middle_count; ++i) {
+        if (choice(rng_) && !profile_->getTrigramsMiddle().empty()) {
+            result += selectWeighted(profile_->getTrigramsMiddle());
+        } else if (!profile_->getBigramsMiddle().empty()) {
+            result += selectWeighted(profile_->getBigramsMiddle());
+        }
+    }
+
+    // End with an ending n-gram
+    if (choice(rng_) && !profile_->getTrigramsEnd().empty()) {
+        result += selectWeighted(profile_->getTrigramsEnd());
+    } else if (!profile_->getBigramsEnd().empty()) {
+        result += selectWeighted(profile_->getBigramsEnd());
+    }
+
+    return capitalize(result);
+}
+
 std::string NameGenerator::generate() {
+    // If profile is loaded, use profile-based generation
+    if (profile_) {
+        return generateFromProfile();
+    }
+
+    // Otherwise use legacy pattern-based generation
     // Pick a random pattern
     std::uniform_int_distribution<size_t> dist(0, patterns_.size() - 1);
     const auto& pattern = patterns_[dist(rng_)];
@@ -125,7 +420,26 @@ std::string NameGenerator::generate() {
 }
 
 NameWithPattern NameGenerator::generateWithPattern() {
-    // Pick a random pattern
+    // If profile is loaded, show strategy instead of pattern
+    if (profile_) {
+        std::string name = generateFromProfile();
+
+        // Determine which strategy was actually used
+        std::string strategy_name;
+        switch (strategy_) {
+            case GenerationStrategy::Markov1: strategy_name = "markov1"; break;
+            case GenerationStrategy::Markov2: strategy_name = "markov2"; break;
+            case GenerationStrategy::Syllable: strategy_name = "syllable"; break;
+            case GenerationStrategy::Component: strategy_name = "component"; break;
+            case GenerationStrategy::NGram: strategy_name = "ngram"; break;
+            case GenerationStrategy::Random: strategy_name = "random"; break;
+            case GenerationStrategy::Legacy: strategy_name = "legacy"; break;
+        }
+
+        return {name, strategy_name};
+    }
+
+    // Otherwise use legacy pattern-based generation
     std::uniform_int_distribution<size_t> dist(0, patterns_.size() - 1);
     const auto& pattern = patterns_[dist(rng_)];
 

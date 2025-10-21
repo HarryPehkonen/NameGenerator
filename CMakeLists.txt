@@ -9,14 +9,54 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Add include directory
 include_directories(include)
 
+# Try to find JSOM library installed on system
+find_package(JSOM QUIET)
+
+# If not found, fetch it from GitHub
+if(NOT JSOM_FOUND)
+    message(STATUS "JSOM not found on system, fetching from GitHub...")
+    include(FetchContent)
+
+    FetchContent_Declare(
+        JSOM
+        GIT_REPOSITORY https://github.com/HarryPehkonen/JSOM.git
+        GIT_TAG main
+        GIT_SHALLOW TRUE
+    )
+
+    # Fetch JSOM but don't build tests/benchmarks (we only need the library)
+    FetchContent_GetProperties(JSOM)
+    if(NOT jsom_POPULATED)
+        FetchContent_Populate(JSOM)
+
+        # Add only the library target, skip tests and other executables
+        add_library(jsom_lib
+            ${jsom_SOURCE_DIR}/src/json_document_pointer.cpp
+            ${jsom_SOURCE_DIR}/src/json_document_formatting.cpp
+        )
+        target_include_directories(jsom_lib PUBLIC
+            ${jsom_SOURCE_DIR}/include
+        )
+        target_compile_features(jsom_lib PRIVATE cxx_std_17)
+    endif()
+
+    message(STATUS "JSOM fetched successfully")
+else()
+    message(STATUS "Using system JSOM library")
+endif()
+
 # Create the executable
 add_executable(namegen
     src/main.cpp
     src/NameGenerator.cpp
+    src/ProfileData.cpp
 )
 
 # Target include directories
 target_include_directories(namegen PRIVATE include)
+
+# Link against JSOM library
+target_link_libraries(namegen PRIVATE jsom_lib)
 
 # Platform-specific settings
 if(MSVC)
