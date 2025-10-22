@@ -29,6 +29,9 @@ public:
     // Load a profile for data-driven generation
     void loadProfile(const std::string& profile_path);
 
+    // Load a second profile for blending (optional)
+    void loadSecondProfile(const std::string& profile_path);
+
     // Set generation strategy (only applies when profile is loaded)
     void setStrategy(GenerationStrategy strategy);
 
@@ -56,6 +59,7 @@ private:
 
     // Profile-based generation
     std::unique_ptr<ProfileData> profile_;
+    std::unique_ptr<ProfileData> profile2_;  // Optional second profile for blending
     GenerationStrategy strategy_ = GenerationStrategy::Markov2;
     size_t min_length_ = 0;
     size_t max_length_ = 0;
@@ -70,6 +74,9 @@ private:
 
     // Helper: weighted random selection
     std::string selectWeighted(const std::vector<ProfileData::WeightedItem>& items);
+
+    // Helper: get random blend point (1 or 2)
+    int getBlendPoint();
 
     // ===== LEGACY PATTERN-BASED GENERATION =====
 

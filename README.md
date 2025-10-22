@@ -10,6 +10,7 @@ Generate names with different flavors (Greek, Norse, Fantasy, etc.) by analyzing
 
 - **Multiple generation strategies**: Markov chains, syllable assembly, component-based (onset/nucleus/coda), n-gram sampling
 - **Data-driven profiles**: Load JSON profiles created by NameAnalyzer for themed name generation
+- **Profile blending**: Combine two profiles to create hybrid names (e.g., Norse + Japanese, Greek + Egyptian)
 - **Flexible constraints**: Set min/max length limits
 - **Zero external dependencies** (except JSOM, auto-fetched by CMake)
 - **Backward compatible**: Legacy pattern-based mode still works
@@ -38,6 +39,7 @@ The executable will be at `./build/namegen`
 ### Options
 - `count` - Number of names to generate (default: 10)
 - `--profile <file>` - Load NameAnalyzer JSON profile
+- `--profile2 <file>` - Load second profile for blending (optional)
 - `--strategy <name>` - Generation strategy (default: markov2)
   - Strategies: `markov1`, `markov2`, `syllable`, `component`, `ngram`, `random`, `legacy`
 - `--min-length <n>` - Minimum name length (default: unbounded)
@@ -186,6 +188,83 @@ Strometheus [random]
 String [random]
 Apoeidenraus [random]
 ```
+
+## Profile Blending
+
+**NEW!** You can now blend two profiles to create hybrid names that combine characteristics from different cultures or themes. The first 1-2 syllables (randomly chosen) come from the first profile, and the rest comes from the second profile.
+
+### How Blending Works
+
+Different strategies blend profiles in different ways:
+
+- **markov1/markov2**: Switch from first profile's Markov chains to second profile's chains after 3-5 characters
+- **syllable**: Use 1-2 syllables from first profile, remaining syllables from second profile
+- **component**: Use 1-2 onset/nucleus/coda components from first profile, rest from second
+- **ngram**: Use starting n-grams from first profile, middle/ending n-grams from second
+- **legacy**: Doesn't support blending (shows warning, uses first profile only)
+
+### Blending Examples
+
+```bash
+# Norse beginnings + Japanese endings
+./build/namegen 20 --profile norse.json --profile2 japanese.json
+
+# Greek beginnings + Egyptian endings
+./build/namegen 15 --profile greek.json --profile2 egyptian.json --strategy syllable
+
+# Celtic + Fantasy word blending
+./build/namegen 20 --profile celtic.json --profile2 fantasy.json --strategy component
+
+# Random blending with debug output
+./build/namegen 10 --profile norse.json --profile2 japanese.json --strategy random --debug
+```
+
+### Expected Blended Results
+
+When blending profiles, you get unique hybrid names:
+
+**Norse + Japanese** (syllable strategy):
+```
+Thorami
+Lokitsuki
+Odinara
+Freyako
+Heimdatsumi
+```
+
+**Greek + Egyptian** (markov2 strategy):
+```
+Zeushotep
+Athenutet
+Poseidra
+Heraset
+Apollothoth
+```
+
+**Celtic + Fantasy** (component strategy):
+```
+Brighflame
+Lughshadow
+Morriastorm
+Cernofrost
+Dagdacrystal
+```
+
+### Use Cases for Blending
+
+- **Cross-cultural names**: Combine mythologies (Norse-Japanese, Greek-Celtic, etc.)
+- **Fantasy world-building**: Mix themes (dragon names with Celtic roots, Norse-inspired magic terms)
+- **Brand names**: Blend familiar + exotic (English-Japanese, Latin-Fantasy)
+- **Character names**: Create unique identities by mixing cultural influences
+- **Project names**: Combine technical + mythological themes
+
+### Tips for Blending
+
+1. **Complementary sounds**: Profiles with similar phonetic patterns blend more smoothly
+2. **Contrast for creativity**: Very different profiles (Greek + Japanese) create more unique results
+3. **Try different strategies**: Syllable blending is most natural, component is most creative
+4. **Use constraints**: Add `--min-length` and `--max-length` to control output
+5. **Experiment freely**: There are no wrong combinations - unexpected blends often produce the best results!
 
 ## Creating Profile Files with NameAnalyzer
 

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <numeric>
+#include <iostream>
 
 NameGenerator::NameGenerator() : rng_(std::random_device{}()) {
     // Initialize consonant blends
@@ -121,8 +122,18 @@ void NameGenerator::loadProfile(const std::string& profile_path) {
     profile_ = std::make_unique<ProfileData>(profile_path);
 }
 
+void NameGenerator::loadSecondProfile(const std::string& profile_path) {
+    profile2_ = std::make_unique<ProfileData>(profile_path);
+}
+
 void NameGenerator::setStrategy(GenerationStrategy strategy) {
     strategy_ = strategy;
+}
+
+int NameGenerator::getBlendPoint() {
+    // Randomly return 1 or 2 for blend point
+    std::uniform_int_distribution<int> dist(1, 2);
+    return dist(rng_);
 }
 
 void NameGenerator::setMinLength(size_t min) {
@@ -201,6 +212,14 @@ std::string NameGenerator::generateFromProfile() {
                 break;
             case GenerationStrategy::Legacy:
             default:
+                // Legacy strategy doesn't support blending
+                if (profile2_) {
+                    static bool warning_shown = false;
+                    if (!warning_shown) {
+                        std::cerr << "Warning: legacy strategy does not support blending, using first profile only\n";
+                        warning_shown = true;
+                    }
+                }
                 name = generateFromPattern(patterns_[std::uniform_int_distribution<size_t>(0, patterns_.size() - 1)(rng_)]);
                 break;
         }
@@ -234,11 +253,21 @@ std::string NameGenerator::generateMarkov1() {
 
     std::string result;
     std::string context = "^";  // Start marker
+    bool switched = false;
+    size_t switch_point = profile2_ ? (3 + (rng_() % 3)) : 999;  // Switch after 3-5 chars if blending
 
     constexpr int max_length = 20;
     for (int i = 0; i < max_length; ++i) {
-        auto it = markov.find(context);
-        if (it == markov.end() || it->second.empty()) {
+        // Switch to profile2 if we have one and reached switch point
+        const auto& current_markov = (profile2_ && !switched && result.length() >= switch_point) ?
+                                     profile2_->getMarkovOrder1() : markov;
+
+        if (profile2_ && !switched && result.length() >= switch_point) {
+            switched = true;
+        }
+
+        auto it = current_markov.find(context);
+        if (it == current_markov.end() || it->second.empty()) {
             break;
         }
 
@@ -262,11 +291,21 @@ std::string NameGenerator::generateMarkov2() {
 
     std::string result;
     std::string context = "^^";  // Start marker
+    bool switched = false;
+    size_t switch_point = profile2_ ? (3 + (rng_() % 3)) : 999;  // Switch after 3-5 chars if blending
 
     constexpr int max_length = 20;
     for (int i = 0; i < max_length; ++i) {
-        auto it = markov.find(context);
-        if (it == markov.end() || it->second.empty()) {
+        // Switch to profile2 if we have one and reached switch point
+        const auto& current_markov = (profile2_ && !switched && result.length() >= switch_point) ?
+                                     profile2_->getMarkovOrder2() : markov;
+
+        if (profile2_ && !switched && result.length() >= switch_point) {
+            switched = true;
+        }
+
+        auto it = current_markov.find(context);
+        if (it == current_markov.end() || it->second.empty()) {
             break;
         }
 
@@ -296,25 +335,33 @@ std::string NameGenerator::generateSyllable() {
         return generateMarkov2();
     }
 
-    const auto& syl_markov = profile_->getMarkovOrder() >= 2 ?
-                             profile_->getSyllableMarkov2() :
-                             profile_->getSyllableMarkov1();
-
     std::string result;
 
-    // Start with a starting syllable
+    // Determine blend point (1 or 2 syllables from first profile)
+    int blend_point = profile2_ ? getBlendPoint() : 999;
+
+    // Start with a starting syllable from profile1
     std::string current_syl = selectWeighted(profile_->getSyllablesStart());
     if (current_syl.empty()) {
         return "Error";
     }
 
     result = current_syl;
+    int syllable_count = 1;
 
     // Chain 1-3 more syllables
     std::uniform_int_distribution<int> syl_count_dist(0, 2);
     int additional_syllables = syl_count_dist(rng_);
 
     for (int i = 0; i < additional_syllables; ++i) {
+        // Switch to profile2 if we've reached blend point
+        ProfileData* current_profile = (profile2_ && syllable_count >= blend_point) ?
+                                       profile2_.get() : profile_.get();
+
+        const auto& syl_markov = current_profile->getMarkovOrder() >= 2 ?
+                                 current_profile->getSyllableMarkov2() :
+                                 current_profile->getSyllableMarkov1();
+
         auto it = syl_markov.find(current_syl);
         if (it == syl_markov.end() || it->second.empty()) {
             break;
@@ -323,6 +370,7 @@ std::string NameGenerator::generateSyllable() {
         std::string next_syl = selectWeighted(it->second);
         result += next_syl;
         current_syl = next_syl;
+        syllable_count++;
     }
 
     return capitalize(result);
@@ -336,32 +384,39 @@ std::string NameGenerator::generateComponent() {
 
     std::string result;
 
+    // Determine blend point (1 or 2 components from first profile)
+    int blend_point = profile2_ ? getBlendPoint() : 999;
+
     // Generate 1-3 syllables using component assembly
     std::uniform_int_distribution<int> syl_count_dist(1, 3);
     int syllable_count = syl_count_dist(rng_);
 
     for (int i = 0; i < syllable_count; ++i) {
+        // Switch to profile2 if we've reached blend point
+        ProfileData* current_profile = (profile2_ && i >= blend_point) ?
+                                       profile2_.get() : profile_.get();
+
         std::string onset, nucleus, coda;
 
         // Select onset based on position
         if (i == 0) {
-            onset = selectWeighted(profile_->getOnsetsStart());
+            onset = selectWeighted(current_profile->getOnsetsStart());
         } else if (i == syllable_count - 1) {
-            onset = selectWeighted(profile_->getOnsetsEnd());
+            onset = selectWeighted(current_profile->getOnsetsEnd());
         } else {
-            onset = selectWeighted(profile_->getOnsetsMiddle());
+            onset = selectWeighted(current_profile->getOnsetsMiddle());
         }
 
         // Nucleus (same for all positions)
-        nucleus = selectWeighted(profile_->getNuclei());
+        nucleus = selectWeighted(current_profile->getNuclei());
 
         // Select coda based on position
         if (i == 0) {
-            coda = selectWeighted(profile_->getCodasStart());
+            coda = selectWeighted(current_profile->getCodasStart());
         } else if (i == syllable_count - 1) {
-            coda = selectWeighted(profile_->getCodasEnd());
+            coda = selectWeighted(current_profile->getCodasEnd());
         } else {
-            coda = selectWeighted(profile_->getCodasMiddle());
+            coda = selectWeighted(current_profile->getCodasMiddle());
         }
 
         result += onset + nucleus + coda;
@@ -373,33 +428,37 @@ std::string NameGenerator::generateComponent() {
 std::string NameGenerator::generateNGram() {
     std::string result;
 
-    // Start with a starting trigram or bigram
+    // Use profile1 for start, profile2 (if available) for middle/end
+    ProfileData* start_profile = profile_.get();
+    ProfileData* end_profile = profile2_ ? profile2_.get() : profile_.get();
+
+    // Start with a starting trigram or bigram from profile1
     std::uniform_int_distribution<int> choice(0, 1);
-    if (choice(rng_) && !profile_->getTrigramsStart().empty()) {
-        result = selectWeighted(profile_->getTrigramsStart());
-    } else if (!profile_->getBigramsStart().empty()) {
-        result = selectWeighted(profile_->getBigramsStart());
+    if (choice(rng_) && !start_profile->getTrigramsStart().empty()) {
+        result = selectWeighted(start_profile->getTrigramsStart());
+    } else if (!start_profile->getBigramsStart().empty()) {
+        result = selectWeighted(start_profile->getBigramsStart());
     } else {
         return "Error";
     }
 
-    // Add 1-3 middle n-grams
+    // Add 1-3 middle n-grams from end_profile (blended if available)
     std::uniform_int_distribution<int> middle_count_dist(1, 3);
     int middle_count = middle_count_dist(rng_);
 
     for (int i = 0; i < middle_count; ++i) {
-        if (choice(rng_) && !profile_->getTrigramsMiddle().empty()) {
-            result += selectWeighted(profile_->getTrigramsMiddle());
-        } else if (!profile_->getBigramsMiddle().empty()) {
-            result += selectWeighted(profile_->getBigramsMiddle());
+        if (choice(rng_) && !end_profile->getTrigramsMiddle().empty()) {
+            result += selectWeighted(end_profile->getTrigramsMiddle());
+        } else if (!end_profile->getBigramsMiddle().empty()) {
+            result += selectWeighted(end_profile->getBigramsMiddle());
         }
     }
 
-    // End with an ending n-gram
-    if (choice(rng_) && !profile_->getTrigramsEnd().empty()) {
-        result += selectWeighted(profile_->getTrigramsEnd());
-    } else if (!profile_->getBigramsEnd().empty()) {
-        result += selectWeighted(profile_->getBigramsEnd());
+    // End with an ending n-gram from end_profile
+    if (choice(rng_) && !end_profile->getTrigramsEnd().empty()) {
+        result += selectWeighted(end_profile->getTrigramsEnd());
+    } else if (!end_profile->getBigramsEnd().empty()) {
+        result += selectWeighted(end_profile->getBigramsEnd());
     }
 
     return capitalize(result);

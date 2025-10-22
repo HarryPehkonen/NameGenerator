@@ -11,6 +11,7 @@ void printUsage(const char* programName) {
               << "\n"
               << "Options:\n"
               << "  --profile <file>        Load NameAnalyzer JSON profile\n"
+              << "  --profile2 <file>       Load second profile for blending (optional)\n"
               << "  --strategy <name>       Generation strategy (default: markov2)\n"
               << "                          Strategies: markov1, markov2, syllable,\n"
               << "                                     component, ngram, random, legacy\n"
@@ -25,13 +26,18 @@ void printUsage(const char* programName) {
               << "  " << programName << " 15 --profile greek.json              # Use Greek profile\n"
               << "  " << programName << " 10 --profile greek.json --strategy syllable\n"
               << "  " << programName << " 20 --profile norse.json --min-length 5 --max-length 10\n"
-              << "  " << programName << " 10 --profile greek.json --strategy random --debug\n";
+              << "  " << programName << " 10 --profile greek.json --strategy random --debug\n"
+              << "\n"
+              << "Profile Blending:\n"
+              << "  " << programName << " 20 --profile norse.json --profile2 japanese.json\n"
+              << "  " << programName << " 15 --profile greek.json --profile2 egyptian.json --strategy syllable\n";
 }
 
 int main(int argc, char* argv[]) {
     size_t count = 10;
     bool debug = false;
     std::string profile_path;
+    std::string profile2_path;
     GenerationStrategy strategy = GenerationStrategy::Markov2;
     size_t min_length = 0;
     size_t max_length = 0;
@@ -51,6 +57,12 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             profile_path = argv[++i];
+        } else if (arg == "--profile2") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --profile2 requires a file path\n";
+                return 1;
+            }
+            profile2_path = argv[++i];
         } else if (arg == "--strategy") {
             if (i + 1 >= argc) {
                 std::cerr << "Error: --strategy requires a strategy name\n";
@@ -128,10 +140,18 @@ int main(int argc, char* argv[]) {
             generator.setStrategy(strategy);
             generator.setMinLength(min_length);
             generator.setMaxLength(max_length);
+
+            // Load second profile if specified (for blending)
+            if (!profile2_path.empty()) {
+                generator.loadSecondProfile(profile2_path);
+            }
         } catch (const std::exception& e) {
             std::cerr << "Error loading profile: " << e.what() << '\n';
             return 1;
         }
+    } else if (!profile2_path.empty()) {
+        std::cerr << "Error: --profile2 requires --profile to be specified first\n";
+        return 1;
     }
 
     // Generate names
