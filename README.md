@@ -1,7 +1,7 @@
 # NameGenerator
 
 A flexible C++20 name generator with dual modes:
-- **Profile Mode**: Data-driven generation using statistical analysis from NameAnalyzer
+- **Profile Mode**: Data-driven generation using statistical analysis from [NameAnalyzer](https://github.com/HarryPehkonen/NameAnalyzer)
 - **Legacy Mode**: Pattern-based generation using phonetic rules
 
 Generate names with different flavors (Greek, Norse, Fantasy, etc.) by analyzing real word lists and using the statistical patterns to create authentic-sounding new names.
