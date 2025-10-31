@@ -24,22 +24,8 @@ if(NOT JSOM_FOUND)
         GIT_SHALLOW TRUE
     )
 
-    # Fetch JSOM but don't build tests/benchmarks (we only need the library)
-    FetchContent_GetProperties(JSOM)
-    if(NOT jsom_POPULATED)
-        FetchContent_Populate(JSOM)
-
-        # Add only the library target, skip tests and other executables
-        add_library(jsom_lib
-            ${jsom_SOURCE_DIR}/src/json_document_pointer.cpp
-            ${jsom_SOURCE_DIR}/src/json_document_formatting.cpp
-        )
-        target_include_directories(jsom_lib PUBLIC
-            ${jsom_SOURCE_DIR}/include
-        )
-        target_compile_features(jsom_lib PRIVATE cxx_std_17)
-    endif()
-
+    # FetchContent will automatically disable JSOM's tests/benchmarks
+    FetchContent_MakeAvailable(JSOM)
     message(STATUS "JSOM fetched successfully")
 else()
     message(STATUS "Using system JSOM library")
@@ -55,8 +41,8 @@ add_executable(namegen
 # Target include directories
 target_include_directories(namegen PRIVATE include)
 
-# Link against JSOM library
-target_link_libraries(namegen PRIVATE jsom_lib)
+# Link against JSOM library (uses modern namespaced target)
+target_link_libraries(namegen PRIVATE JSOM::jsom)
 
 # Platform-specific settings
 if(MSVC)
